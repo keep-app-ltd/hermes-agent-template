@@ -50,6 +50,12 @@ RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/h
     npm run build && \
     rm -rf /opt/hermes-agent/web /opt/hermes-agent/.git /root/.npm
 
+# Operator patch: Hermes Telegram .md delivery fix (bold ** not treated as media path;
+# bare /tmp/*.md paths merged into send_document; missing attachments return success=false).
+COPY hermes-patches/gateway/platforms/base.py /opt/hermes-agent/gateway/platforms/base.py
+COPY hermes-patches/tools/send_message_tool.py /opt/hermes-agent/tools/send_message_tool.py
+
+
 # Why pre-build ui-tui (and why we don't delete it after):
 # - The dashboard's embedded Chat tab spawns `node ui-tui/dist/entry.js`
 #   on every WebSocket connect to /api/pty.
