@@ -4782,6 +4782,8 @@ class BasePlatformAdapter(ABC):
         # Normalize empty topic to None
         if chat_topic is not None and not chat_topic.strip():
             chat_topic = None
+        # HERMES_REF=v2026.6.5 SessionSource has no role_authorized field — accept
+        # the kwarg for newer telegram.py callers but do not pass it through.
         return SessionSource(
             platform=self.platform,
             chat_id=str(chat_id),
@@ -4797,7 +4799,6 @@ class BasePlatformAdapter(ABC):
             guild_id=str(guild_id) if guild_id else None,
             parent_chat_id=str(parent_chat_id) if parent_chat_id else None,
             message_id=str(message_id) if message_id else None,
-            role_authorized=role_authorized,
         )
     
     @abstractmethod
