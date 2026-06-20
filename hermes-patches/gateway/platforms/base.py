@@ -1032,28 +1032,6 @@ def _path_is_within(path: Path, root: Path) -> bool:
         return False
 
 
-# Markdown emphasis tokens (e.g. ``**bold**``) must never be treated as file paths.
-_MARKDOWN_EMPHASIS_ONLY_RE = re.compile(r"^\*+$")
-
-
-def _is_plausible_extracted_media_path(path: str) -> bool:
-    """Return True when a MEDIA: extraction candidate looks like a real path.
-
-    Rejects markdown emphasis artifacts (``**``, ``***``) and other bare tokens
-    that legacy greedy ``\\S+`` fallbacks could capture from formatted text.
-    """
-    candidate = str(path).strip()
-    if not candidate:
-        return False
-    if _MARKDOWN_EMPHASIS_ONLY_RE.match(candidate):
-        return False
-    if candidate.startswith(("~/", "/")) or re.match(r"^[A-Za-z]:[/\\]", candidate):
-        return True
-    # Require a path separator for all other candidates — bare tokens like
-    # ``**`` or ``report`` must not become attachment paths.
-    return "/" in candidate or "\\" in candidate
-
-
 def validate_media_delivery_path(path: str) -> Optional[str]:
     """Return a safe absolute file path for native media delivery, else None.
 
@@ -3044,7 +3022,7 @@ class BasePlatformAdapter(ABC):
             if len(path) >= 2 and path[0] == path[-1] and path[0] in "`\"'":
                 path = path[1:-1].strip()
             path = path.lstrip("`\"'").rstrip("`\"',.;:)}]")
-            if path and _is_plausible_extracted_media_path(path):
+            if path:
                 try:
                     media.append((os.path.expanduser(path), has_voice_tag))
                 except (OSError, RuntimeError, ValueError):
@@ -4782,8 +4760,6 @@ class BasePlatformAdapter(ABC):
         # Normalize empty topic to None
         if chat_topic is not None and not chat_topic.strip():
             chat_topic = None
-        # HERMES_REF=v2026.6.5 SessionSource has no role_authorized field — accept
-        # the kwarg for newer telegram.py callers but do not pass it through.
         return SessionSource(
             platform=self.platform,
             chat_id=str(chat_id),
@@ -4799,6 +4775,7 @@ class BasePlatformAdapter(ABC):
             guild_id=str(guild_id) if guild_id else None,
             parent_chat_id=str(parent_chat_id) if parent_chat_id else None,
             message_id=str(message_id) if message_id else None,
+            role_authorized=role_authorized,
         )
     
     @abstractmethod

@@ -1170,12 +1170,6 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                 logger.error(warning)
                 warnings.append(warning)
 
-        if last_msg is None:
-            error = "No deliverable text or media remained after processing MEDIA tags"
-            if warnings:
-                return {"error": error, "warnings": warnings}
-            return {"error": error}
-
         if requested_attachments > 0 and missing_attachment_paths:
             missing_list = ", ".join(missing_attachment_paths)
             attachment_error = (
@@ -1193,6 +1187,12 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
             if warnings:
                 result["warnings"] = warnings
             return result
+
+        if last_msg is None:
+            error = "No deliverable text or media remained after processing MEDIA tags"
+            if warnings:
+                return {"error": error, "warnings": warnings}
+            return {"error": error}
 
         result = {
             "success": True,
