@@ -8,7 +8,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 # newest tag (format `vYYYY.M.D`, optionally with a `.PATCH` suffix, e.g.
 # `v2026.5.29.2`) and update the default below. Use `main` only if you accept
 # that every rebuild can pull arbitrary new upstream commits.
-ARG HERMES_REF=v2026.6.19
+ARG HERMES_REF=v2026.8.3
 
 # tini = tiny init that we run as PID 1. Without it, hermes's grandchild
 # processes (MCP stdio servers, git, bun, browser daemons spawned by tools)
@@ -30,15 +30,12 @@ RUN apt-get update && \
 # Install hermes-agent (provides the `hermes` CLI) and pre-build its React
 # dashboard so `hermes dashboard` has nothing to build at runtime.
 #
-# [all] in v2026.6.19 (Hermes v0.17.0) no longer pulls in [dev]; messaging platforms, TTS, and
-# other heavy backends are lazy-installed by hermes at first use. We pre-install
-# the ones this template actually uses so first-message latency is instant.
-# `vision` (Pillow) is a soft-dep that is NOT in [all] and is otherwise
-# lazy-installed at first image use: without it hermes can't downscale an
-# oversized image (>5 MB / >8000px), which then bakes into immutable history
-# and bricks the session on Anthropic's non-retryable 400. We bake it in.
-# When bumping HERMES_REF, re-check hermes-agent's pyproject.toml [all] and
-# the extras below against the new release's pyproject.toml.
+# [all] in v2026.8.3 (Hermes v0.20.0) still leaves messaging/TTS/provider backends
+# as extras (lazy-installed at first use). We pre-install the ones this template
+# actually uses so first-message latency is instant. `vision` is now a no-op
+# alias (Pillow is a core dep) but kept for pin-compat. When bumping HERMES_REF,
+# re-check hermes-agent's pyproject.toml [all] and the extras below against the
+# new release's pyproject.toml.
 RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/hermes-agent.git /opt/hermes-agent && \
     cd /opt/hermes-agent && \
     uv pip install --system --no-cache -e ".[all,messaging,tts-premium,honcho,bedrock,anthropic,edge-tts,hindsight,vision]" && \
@@ -50,9 +47,10 @@ RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/h
     npm run build && \
     rm -rf /opt/hermes-agent/web /opt/hermes-agent/.git /root/.npm
 
-# Operator patch: Hermes Telegram .md delivery fix (bold ** not treated as media path;
-# bare /tmp/*.md paths merged into send_document; missing attachments return success=false).
-COPY hermes-patches/gateway/platforms/base.py /opt/hermes-agent/gateway/platforms/base.py
+# Operator patch (rebased on v0.20.0): bare /tmp/*.md paths merged into
+# send_document; missing attachments return success=false. Do NOT overlay
+# gateway/platforms/base.py — stock 0.20 already has extract_local_files /
+# MEDIA handling; an older base.py would wipe ~90KB of newer upstream code.
 COPY hermes-patches/tools/send_message_tool.py /opt/hermes-agent/tools/send_message_tool.py
 
 
