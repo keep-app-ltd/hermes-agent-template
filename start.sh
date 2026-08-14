@@ -48,4 +48,19 @@ fi
 # container), so removing the file unconditionally is safe.
 rm -f /data/.hermes/gateway.pid
 
+# keep-app evidence-integrity hook: /opt/hermes-agent is the editable install
+# root, so `import keepapp` works. PYTHONPATH is inherited by `hermes gateway`.
+export PYTHONPATH="/opt/hermes-agent${PYTHONPATH:+:$PYTHONPATH}"
+python3 - <<'PY' || true
+import pathlib, site
+line = "import keepapp.install_hook; keepapp.install_hook.install_import_hook()\n"
+for sp in site.getsitepackages():
+    p = pathlib.Path(sp)
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        (p / "keepapp-hook.pth").write_text(line)
+    except Exception:
+        pass
+PY
+
 exec python /app/server.py

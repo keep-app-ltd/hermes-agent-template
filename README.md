@@ -113,6 +113,11 @@ This template pins a specific Hermes Agent release in the `Dockerfile` (`ARG HER
 
 The "Update" button inside the Hermes dashboard is a **no-op on Railway** (it detects a container install and refuses) — the image is immutable, so a runtime self-update wouldn't survive a redeploy. Bump `HERMES_REF` and redeploy instead. When jumping releases, re-check that the Dockerfile's install extras still match upstream's `pyproject.toml`.
 
+## Keep-app overlays
+
+- `hermes-patches/tools/send_message_tool.py` — bare local `.md` paths + fail-closed missing attachments.
+- `hermes-patches/keepapp/` — evidence-integrity / tool-claim guard. Blocks Telegram replies that assert timeout/connection/MCP/broker failures unless current-turn tool evidence proves that class. Hooked via `sitecustomize.py` (not a `base.py` overlay). Tests: `python3 -m pytest tests/test_evidence_integrity.py`.
+
 ## Credits
 
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com/)

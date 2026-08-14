@@ -53,6 +53,12 @@ RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/h
 # MEDIA handling; an older base.py would wipe ~90KB of newer upstream code.
 COPY hermes-patches/tools/send_message_tool.py /opt/hermes-agent/tools/send_message_tool.py
 
+# Evidence-integrity / tool-claim guard (keep-app). Do NOT overlay
+# gateway/platforms/base.py. sitecustomize installs an import hook that
+# wraps the Telegram finalize path (sanitize + stream _send_or_edit).
+COPY hermes-patches/keepapp /opt/hermes-agent/keepapp
+COPY hermes-patches/sitecustomize.py /usr/local/lib/python3.12/site-packages/sitecustomize.py
+
 
 # Why pre-build ui-tui (and why we don't delete it after):
 # - The dashboard's embedded Chat tab spawns `node ui-tui/dist/entry.js`
