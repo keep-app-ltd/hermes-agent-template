@@ -53,7 +53,7 @@ rm -f /data/.hermes/gateway.pid
 export PYTHONPATH="/opt/hermes-agent${PYTHONPATH:+:$PYTHONPATH}"
 python3 - <<'PY' || true
 import pathlib, site
-line = "import keepapp.install_hook; keepapp.install_hook.install_import_hook()\n"
+line = "/opt/hermes-agent\nimport keepapp.install_hook; keepapp.install_hook.install_import_hook()\n"
 for sp in site.getsitepackages():
     p = pathlib.Path(sp)
     try:

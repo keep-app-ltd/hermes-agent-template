@@ -87,6 +87,8 @@ def _patch_if_target(imported_name: str, module: Any, modules: dict[str, Any]) -
 def _patch_module(name: str, module: Any) -> None:
     if name in _PATCHED:
         return
+    # Mark first so a re-entrant import during patching cannot wrap twice.
+    _PATCHED.add(name)
     if name == "gateway.run":
         _patch_gateway_run(module)
     elif name == "gateway.stream_consumer":
@@ -95,7 +97,6 @@ def _patch_module(name: str, module: Any) -> None:
         _patch_tool_dispatch(module)
     elif name == "agent.turn_summary":
         _patch_turn_summary(module)
-    _PATCHED.add(name)
     logger.info("keepapp evidence-integrity hook installed on %s", name)
 
 
@@ -126,6 +127,12 @@ def _patch_gateway_run(module: Any) -> None:
 
     module._normalize_empty_agent_response = _normalize_empty_agent_response
     module._sanitize_gateway_final_response = _sanitize_gateway_final_response
+    try:
+        import gateway.stream_consumer as stream_consumer
+
+        _patch_module("gateway.stream_consumer", stream_consumer)
+    except Exception:
+        logger.debug("stream_consumer not ready for keepapp hook", exc_info=True)
 
 
 def _patch_stream_consumer(module: Any) -> None:
