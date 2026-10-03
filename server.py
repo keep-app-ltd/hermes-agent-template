@@ -194,13 +194,14 @@ def write_config_yaml(data: dict[str, str]) -> None:
     restart and required hand-restoration after each redeploy.
 
     The fix: load the existing file if any, apply the deployment-managed keys
-    (``model.default``, ``model.provider``, ``terminal``, ``agent``, ``data_dir``)
-    on top, and write the merged result. Unknown top-level keys (``mcp_servers``,
-    custom skill config, etc.) are preserved verbatim.
+    (``terminal``, ``agent``, ``data_dir``) on top, and write the merged result.
+    ``model.default`` and ``model.provider`` stay whatever the Hermes dashboard
+    saved in config.yaml. ``LLM_MODEL`` is not a model source.
+    Unknown top-level keys (``mcp_servers``, custom skill config, etc.) are
+    preserved verbatim.
     """
     import yaml  # hermes-agent already pulls pyyaml; deferred import keeps cold start light
 
-    model = data.get("LLM_MODEL", "")
     config_path = Path(HERMES_HOME) / "config.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -216,17 +217,6 @@ def write_config_yaml(data: dict[str, str]) -> None:
             existing = {}
 
     merged = dict(existing)
-
-    # Deployment-managed (always authoritative — these reflect the runtime env).
-    merged_model = dict(merged.get("model") if isinstance(merged.get("model"), dict) else {})
-    merged_model["default"] = model
-    # Only force provider="auto" when a known API key is configured. If no
-    # API key is set, the user likely configured an OAuth provider (xai-oauth,
-    # qwen-oauth, etc.) via the dashboard's model picker — preserve that value
-    # so a container restart doesn't revert it to "auto" and break their session.
-    if any(data.get(k) for k in PROVIDER_KEYS):
-        merged_model["provider"] = "auto"
-    merged["model"] = merged_model
 
     merged_terminal = dict(merged.get("terminal") if isinstance(merged.get("terminal"), dict) else {})
     merged_terminal["backend"] = "local"
@@ -543,6 +533,23 @@ async def api_oauth_xai_status(request: Request) -> Response:
     })
 
 
+def read_dashboard_model() -> tuple[str, str]:
+    """Return config.yaml model.default and model.provider. Never invents a model."""
+    config_path = Path(HERMES_HOME) / "config.yaml"
+    if not config_path.exists():
+        return "", ""
+    try:
+        import yaml
+        with config_path.open() as f:
+            loaded = yaml.safe_load(f)
+    except Exception:
+        return "", ""
+    model = loaded.get("model") if isinstance(loaded, dict) else None
+    if not isinstance(model, dict):
+        return "", ""
+    return str(model.get("default") or "").strip(), str(model.get("provider") or "").strip()
+
+
 def is_config_complete(data: dict[str, str] | None = None) -> bool:
     """Single source of truth for 'ready to run the gateway'.
 
@@ -550,7 +557,8 @@ def is_config_complete(data: dict[str, str] | None = None) -> bool:
     """
     if data is None:
         data = read_env(ENV_FILE)
-    has_model = bool(data.get("LLM_MODEL"))
+    # The dashboard config is the model source. LLM_MODEL in .env is not required.
+    has_model = bool(read_dashboard_model()[0])
     has_provider = any(data.get(k) for k in PROVIDER_KEYS) or _has_xai_oauth_tokens()
     return has_model and has_provider
 
@@ -788,11 +796,20 @@ class Gateway:
             # (which reads the same file) doesn't shadow our values.
             env = {**os.environ, "HERMES_HOME": HERMES_HOME}
             env.update(read_env(ENV_FILE))
-            model = env.get("LLM_MODEL", "")
+            # Dashboard config.yaml is the only model source. Do not pass an
+            # env model selector into the gateway process.
+            env.pop("LLM_MODEL", None)
+            env.pop("OPENAI_MODEL", None)
             provider_key = next((env.get(k, "") for k in PROVIDER_KEYS if env.get(k)), "")
-            print(f"[gateway] model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}", flush=True)
-            # Write config.yaml so hermes picks up the model (env vars alone aren't always enough)
+            # Merge deployment keys into config.yaml without replacing the
+            # dashboard model block.
             write_config_yaml(read_env(ENV_FILE))
+            model, provider = read_dashboard_model()
+            print(
+                f"[gateway] model={model or '⚠ NOT SET'} provider={provider or '⚠ NOT SET'} "
+                f"| provider_key={'set' if provider_key else '⚠ NOT SET'}",
+                flush=True,
+            )
             self.proc = await asyncio.create_subprocess_exec(
                 "hermes", "gateway",
                 stdout=asyncio.subprocess.PIPE,
