@@ -28,10 +28,10 @@ def tools() -> None:
     from scripts.releases.distance import NoReleaseTag, dev_version
     from scripts.write_install_stamp import write_stamp
 
-    for name in ("python", "uv", "npm", "ffmpeg", "ripgrep"):
+    for name in ("python", "uv", "npm", "pnpm", "ffmpeg", "ripgrep"):
         ensure(name, explicit=True)
     for command, package in (("python3", "python"), ("node", "node"), ("npm", "npm"),
-                             ("ffmpeg", "ffmpeg"), ("rg", "ripgrep")):
+                             ("pnpm", "pnpm"), ("ffmpeg", "ffmpeg"), ("rg", "ripgrep")):
         Path("/usr/local/bin", command).symlink_to(installed_package(package).binary)
     npx = shutil.which("npx", path=env_for("npm", base_env={})["PATH"])
     if npx is None:
