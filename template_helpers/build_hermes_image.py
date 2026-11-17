@@ -93,13 +93,24 @@ from hermes_cli.config import atomic_config_replace
 
 
 def frontends() -> None:
-    run(ENVIRONMENT / "bin/python", "-I", SOURCE / "scripts/generate_icons.py",
-        "--source", SOURCE, "--out", "/tmp/hermes-icons")
-    run("node", "scripts/build/node-deps.mjs", "--source", SOURCE,
-        "--workspace", "ui-tui", "--workspace", "web")
-    run("node", "scripts/build/tui.mjs", "--source", SOURCE, "--out", "/tmp/hermes-products/tui")
-    run("node", "scripts/build/web.mjs", "--source", SOURCE,
-        "--icons", "/tmp/hermes-icons", "--out", "/tmp/hermes-products/web")
+    import traceback
+    def step(label: str, *args: str | Path, **kwargs) -> None:
+        print(f"[frontends] start: {label}", flush=True)
+        try:
+            run(*args, **kwargs)
+        except Exception:
+            print(f"[frontends] FAILED: {label}", flush=True)
+            traceback.print_exc()
+            raise
+        print(f"[frontends] done: {label}", flush=True)
+
+    step("generate_icons", ENVIRONMENT / "bin/python", "-I", SOURCE / "scripts/generate_icons.py",
+         "--source", SOURCE, "--out", "/tmp/hermes-icons")
+    step("node-deps", "node", "scripts/build/node-deps.mjs", "--source", SOURCE,
+         "--workspace", "ui-tui", "--workspace", "web")
+    step("tui", "node", "scripts/build/tui.mjs", "--source", SOURCE, "--out", "/tmp/hermes-products/tui")
+    step("web", "node", "scripts/build/web.mjs", "--source", SOURCE,
+         "--icons", "/tmp/hermes-icons", "--out", "/tmp/hermes-products/web")
     shutil.copytree("/tmp/hermes-products/tui", PAYLOAD / "ui-tui")
     shutil.copytree("/tmp/hermes-products/web", SOURCE / "hermes_cli/web_dist", dirs_exist_ok=True)
     # Keep TypeScript for the native linting feature; bundler dependencies are
