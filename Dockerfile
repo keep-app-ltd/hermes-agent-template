@@ -85,9 +85,9 @@ RUN python3 /app/template_helpers/build_hermes_image.py tools
 # pip/uv mutations follow it. The retired honcho extra belongs to its plugin.
 RUN python3 /app/template_helpers/build_hermes_image.py dependencies
 ENV HERMES_PYTHON=/opt/hermes/venv/bin/python
-RUN python3 /app/template_helpers/build_hermes_image.py frontends && \
-    python3 /app/template_helpers/build_hermes_image.py assemble && \
-    python3 /app/template_helpers/build_hermes_image.py verify && \
+RUN python3 /app/template_helpers/build_hermes_image.py frontends
+RUN python3 /app/template_helpers/build_hermes_image.py assemble
+RUN python3 /app/template_helpers/build_hermes_image.py verify && \
     rm -rf /root/.cache /root/.hermes /root/.npm
 
 # keep-app operator patches (after assemble so /opt/hermes-agent symlink exists):
