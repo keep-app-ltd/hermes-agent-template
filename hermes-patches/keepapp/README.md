@@ -18,7 +18,7 @@ Assistant replies are finalized in:
 - `gateway.stream_consumer.GatewayStreamConsumer._send_or_edit` (finalize)
 
 `tools/send_message_tool.py` is the optional cross-channel send engine, not the
-assistant-reply path. Do **not** overlay `gateway/platforms/base.py` onto 0.20+.
+assistant-reply path. Do **not** overlay `gateway/platforms/base.py` onto 0.23+.
 
 This package is copied to `/opt/hermes-agent/keepapp` and activated via
 `sitecustomize.py` (import hook). Monkey-patches only the four small functions

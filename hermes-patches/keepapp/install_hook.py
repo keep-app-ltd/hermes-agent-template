@@ -1,4 +1,4 @@
-"""Install the claim guard on Hermes 0.20 without overlaying gateway/platforms/base.py.
+"""Install the claim guard on Hermes 0.23 without overlaying gateway/platforms/base.py.
 
 Hook points (smallest robust):
 1. ``gateway.run._normalize_empty_agent_response`` — has ``agent_result['messages']``.

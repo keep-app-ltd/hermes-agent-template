@@ -1,34 +1,53 @@
 #!/bin/bash
 set -e
 
-# Mirror dashboard-ref-only's startup: create every directory hermes expects
-# and seed a default config.yaml if the volume is empty. Without these,
+# Refuse links before seeding directories/stamps. Config and .env are seeded
+# by the preparation worker only after interrupted PM publication is recovered.
+for path in /data/.hermes /data/.hermes/config.yaml /data/.hermes/.env /data/.hermes/profiles \
+            /data/.hermes/.install_method /data/.hermes/auth.json; do
+  if [ -L "$path" ]; then
+    echo "[template-config-migrate] ERROR: refusing symlinked Hermes path: $path" >&2
+    exit 1
+  fi
+done
+
+# Create the directories Hermes expects before the admin server starts.
+# The preparation worker seeds config only after journal recovery. Without these,
 # `hermes dashboard` endpoints that hit logs/, sessions/, cron/, etc. can fail
 # with opaque errors even though no auth is actually involved.
+# NOTE (hermes >= v2026.7.1): several dirs were consolidated and are now
+# resolved via get_hermes_dir("<new>", "<old>"), which returns the NEW path
+# unless the OLD one already has *content*. Seeding an empty legacy stub no
+# longer "claims" it — hermes ignores empty stubs and writes to the new path
+# (upstream #27602). So we seed the NEW paths: pairing -> platforms/pairing,
+# image_cache -> cache/images, audio_cache -> cache/audio. A populated legacy
+# dir from a pre-v2026.7.1 deploy still wins on both sides, so no migration is
+# needed. server.py:_resolve_pairing_dir() mirrors this same rule for the
+# admin panel's Users tab — keep the two in sync on future bumps.
 mkdir -p /data/.hermes/cron /data/.hermes/sessions /data/.hermes/logs \
-         /data/.hermes/memories /data/.hermes/skills /data/.hermes/pairing \
-         /data/.hermes/hooks /data/.hermes/image_cache /data/.hermes/audio_cache \
+         /data/.hermes/memories /data/.hermes/skills /data/.hermes/platforms/pairing \
+         /data/.hermes/hooks /data/.hermes/cache/images /data/.hermes/cache/audio \
          /data/.hermes/workspace /data/.hermes/skins /data/.hermes/plans \
          /data/.hermes/home
 
 # Stamp the install method as "docker" so hermes treats this as an immutable
-# container image, not a pip checkout. hermes's detect_install_method() reads
-# $HERMES_HOME/.install_method FIRST (before any .git / pip fallback). Without
-# this stamp the template falls through to "pip" — because the Dockerfile strips
-# /opt/hermes-agent/.git — and the dashboard's "Update Hermes" button then runs
-# a real `hermes update` (PyPI pip-upgrade) INSIDE the running container. That
-# upgrade is ephemeral (reverts on the next redeploy) and can desync the Python
-# package from the image's pre-built web_dist/ui-tui bundles. Stamping "docker"
-# makes that button correctly refuse with "pull a fresh image / redeploy", which
-# matches the real upgrade path here (bump HERMES_REF in Railway + redeploy).
-# Written unconditionally each boot so it stays correct and self-heals.
+# container image, not a pip checkout. detect_install_method() reads the
+# code-scoped /opt/hermes-agent/.install_method baked by Dockerfile first, then
+# this home-scoped stamp when running in a container, before .git / pip fallback.
+# Those stamps make the dashboard's "Update Hermes" button refuse an ephemeral
+# in-container pip upgrade, which could desync the Python package from this
+# image's pre-built web_dist/ui-tui bundles. The real upgrade path is to bump
+# HERMES_REF and redeploy. Rewrite this home stamp each boot to self-heal it.
 printf 'docker\n' > /data/.hermes/.install_method
 
-if [ ! -f /data/.hermes/config.yaml ] && [ -f /opt/hermes-agent/cli-config.yaml.example ]; then
-  cp /opt/hermes-agent/cli-config.yaml.example /data/.hermes/config.yaml
-fi
+# PM now owns optional dependencies. Keep any legacy lazy-packages directory
+# intact for rollback, but never load its Python 3.12 extensions into 3.14.
+unset HERMES_LAZY_INSTALL_TARGET
 
-[ ! -f /data/.hermes/.env ] && touch /data/.hermes/.env
+# server.py binds /setup and /health before running template_helpers/prepare_hermes.py under a
+# bounded, visible supervisor. That worker settles interrupted PM publication,
+# refreshes the current image's dependencies and migrates root/named configs
+# before either Hermes child can start.
 
 # Bootstrap OAuth tokens from env var (e.g. xAI Grok SuperGrok).
 # Set HERMES_AUTH_JSON_BOOTSTRAP to the contents of a locally-generated
@@ -39,28 +58,37 @@ if [ ! -f /data/.hermes/auth.json ] && [ -n "${HERMES_AUTH_JSON_BOOTSTRAP}" ]; t
   chmod 600 /data/.hermes/auth.json
 fi
 
-# Clear any stale gateway PID file left over from the previous container.
-# `hermes gateway` writes /data/.hermes/gateway.pid on start but does not
-# remove it on SIGTERM. Since /data is a persistent volume, the file
-# survives container restarts and causes every subsequent boot to exit with
-# "ERROR gateway.run: PID file race lost to another gateway instance".
-# No hermes process can be running at this point (we're pre-exec in a fresh
-# container), so removing the file unconditionally is safe.
-rm -f /data/.hermes/gateway.pid
+# Clear stale gateway runtime files left over from the previous container.
+# hermes writes these on start but does not remove them on SIGTERM, and /data
+# is a persistent volume, so they survive into the next boot:
+#   gateway.pid   -> "PID file race lost to another gateway instance"
+#   gateway.lock  -> since v2026.8.27 get_running_pid() also consults the lock,
+#                    and the new cross-profile gate makes `--replace` REFUSE a
+#                    pid it cannot prove owns this HERMES_HOME (gateway/run.py
+#                    "Refusing --replace"), which no retry can clear
+#   gateway.sock  -> a stale control socket blocks the fresh bind
+# No hermes process can be running here (we are pre-exec in a fresh
+# container), so removing all three unconditionally is safe.
+rm -f /data/.hermes/gateway.pid /data/.hermes/gateway.lock /data/.hermes/gateway.sock
 
-# keep-app evidence-integrity hook: /opt/hermes-agent is the editable install
-# root, so `import keepapp` works. PYTHONPATH is inherited by `hermes gateway`.
-export PYTHONPATH="/opt/hermes-agent${PYTHONPATH:+:$PYTHONPATH}"
-python3 - <<'PY' || true
-import pathlib, site
+
+# HERMES_DASHBOARD_PUBLIC_URL is deliberately NOT exported here. server.py owns
+# it: build_hermes_env() sets it only alongside the basic-auth credentials that
+# satisfy hermes' auth gate. Declaring the URL without them makes the dashboard
+# SystemExit at startup (v2026.8.27's should_require_dashboard_auth), and since
+# Dashboard has no respawn supervisor every proxied page 503s until redeploy
+# while /setup and /health stay green. Setting it here would skip that pairing.
+
+# keep-app evidence-integrity hook (python -E -s ignores PYTHONPATH).
+/opt/hermes/wrapper-venv/bin/python - <<'PY' || true
+from pathlib import Path
 line = "/opt/hermes-agent\nimport keepapp.install_hook; keepapp.install_hook.install_import_hook()\n"
-for sp in site.getsitepackages():
-    p = pathlib.Path(sp)
-    try:
-        p.mkdir(parents=True, exist_ok=True)
-        (p / "keepapp-hook.pth").write_text(line)
-    except Exception:
-        pass
+for root in (Path("/opt/hermes/venv"), Path("/opt/hermes/wrapper-venv")):
+    for sp in root.glob("lib/python*/site-packages"):
+        try:
+            (sp / "keepapp-hook.pth").write_text(line)
+        except Exception:
+            pass
 PY
 
-exec python /app/server.py
+exec /opt/hermes/wrapper-venv/bin/python -E -s /app/server.py
