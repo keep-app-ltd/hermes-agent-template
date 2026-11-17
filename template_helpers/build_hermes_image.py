@@ -113,17 +113,31 @@ def frontends() -> None:
          "--icons", "/tmp/hermes-icons", "--out", "/tmp/hermes-products/web")
     shutil.copytree("/tmp/hermes-products/tui", PAYLOAD / "ui-tui")
     shutil.copytree("/tmp/hermes-products/web", SOURCE / "hermes_cli/web_dist", dirs_exist_ok=True)
-    # Keep TypeScript for the native linting feature; bundler dependencies are
-    # build inputs, and the compiled TUI includes its runtime JS dependencies.
-    typescript = Path("/tmp/hermes-typescript")
-    shutil.move(SOURCE / "node_modules/typescript", typescript)
+    # Keep TypeScript for native linting. pnpm puts it behind a store symlink
+    # (node_modules/typescript -> .pnpm/typescript@…/node_modules/typescript).
+    # shutil.move follows/breaks that layout; copy the resolved package out
+    # before deleting node_modules, then restore a real tree.
+    typescript_link = SOURCE / "node_modules/typescript"
+    typescript_stash = Path("/tmp/hermes-typescript")
+    if typescript_stash.exists():
+        shutil.rmtree(typescript_stash) if typescript_stash.is_dir() else typescript_stash.unlink()
+    if typescript_link.exists() or typescript_link.is_symlink():
+        print(f"[frontends] stash typescript from {typescript_link} -> {typescript_link.resolve()}", flush=True)
+        shutil.copytree(typescript_link.resolve(), typescript_stash, symlinks=False)
+    else:
+        raise FileNotFoundError(f"typescript package missing at {typescript_link}")
     for name in ("node_modules", "web", "ui-tui"):
-        shutil.rmtree(SOURCE / name)
-    shutil.move(typescript, SOURCE / "node_modules/typescript")
+        target = SOURCE / name
+        if target.exists() or target.is_symlink():
+            shutil.rmtree(target)
+    (SOURCE / "node_modules").mkdir(parents=True, exist_ok=True)
+    shutil.copytree(typescript_stash, SOURCE / "node_modules/typescript")
     (SOURCE / "node_modules/.bin").mkdir()
     (SOURCE / "node_modules/.bin/tsc").symlink_to("../typescript/bin/tsc")
+    shutil.rmtree(typescript_stash, ignore_errors=True)
     shutil.rmtree("/tmp/hermes-products")
     shutil.rmtree("/tmp/hermes-icons")
+    print("[frontends] typescript retained for linting", flush=True)
 
 
 def assemble() -> None:
